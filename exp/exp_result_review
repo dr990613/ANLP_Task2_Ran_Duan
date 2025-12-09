@@ -1,0 +1,57 @@
+## 5. Experimental Results and Informal Evaluation
+
+This section presents a short assessment of the system based on five sample queries.  
+We summarize whether the answers were useful, how the routing behaved, and where improvements are possible.
+
+---
+
+### 5.1 Usefulness of the Answers (Short Summary)
+
+Across the five experiments, the system generally produced **useful, well-structured answers**:
+
+- Theoretical explanations were clear and suitable for academic use.  
+- The debugging answer contained actionable fixes.  
+- The study plans were coherent and adapted correctly to time constraints.
+
+However, two improvement areas were observed:
+
+1. **Notes written but not reused** — the system stores markdown notes but does not retrieve them later.  
+2. **Memory not selective** — session history is always injected, even when irrelevant to the current query.
+
+These limitations suggest opportunities for more controlled memory retrieval and more intelligent tool-calling strategies.
+
+---
+
+### 5.2 Informal Evaluation Criteria
+
+Below are lightweight criteria used to examine the system's behaviour:
+
+- **Routing correctness** — Did the router choose an appropriate specialist?  
+- **Subjective usefulness** — Was the answer helpful to a human user?  
+- **Memory impact** — Did session history or stored notes meaningfully affect the answer?  
+- **Tool usage quality** — Were tools invoked appropriately, and were outputs integrated cleanly?
+
+---
+
+### 5.3 Evaluation Table (Condensed)
+
+| # | Query Type | Activated Agents | Routing | Usefulness | Memory Impact | Tool Calls | Notes |
+|---|------------|------------------|---------|------------|---------------|------------|-------|
+| 1 | MAS comparison | router → memory_load → theory → memory_update | ✓ | High | Low | save_markdown_note | Good theoretical explanation |
+| 2 | System design (vector DB + MAS) | router → memory_load → theory → memory_update | ✓ | High | Low | save_markdown_note | Solid architecture description |
+| 3 | Debug / KeyError | router → memory_load → coding → memory_update | ✓ | Medium-High | Low | beacon_analyze_code | Useful fixes; tool output slightly noisy |
+| 4 | CNN 7-day study plan | router → memory_load → planner → memory_update | ✓ | High | Medium | None | Coherent, actionable plan |
+| 5 | 2-hour daily schedule | router → memory_load → planner → memory_update | ✓ | High | Medium-High | None | Clear compression of previous plan |
+
+---
+
+### 5.4 Overall Discussion
+
+- **Routing correctness was consistently strong**, with no misclassified queries.  
+- **Answer usefulness was high across all tasks**, especially in theory and planning.  
+- **Memory had partial influence**: session history affected planning tasks but did not enable true information reuse (notes retrieval was not triggered).  
+- **Tool usage was functional but could be more controlled**:  
+  - `save_markdown_note` produced useful study notes, but always triggered for theory queries.  
+  - `beacon_analyze_code` provided structural insight but its raw summary format could be better integrated.
+
+Overall, the system performed reliably and demonstrated the intended multi-agent behavior, while leaving clear paths for improving memory retrieval and tool-usage policies.

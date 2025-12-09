@@ -1,0 +1,136 @@
+
+
+# Multi-Agent Study & Productivity Assistant
+
+LangGraph + LangChain + Qwen (vLLM endpoint)
+
+
+1. DESIGN OVERVIEW
+
+The system uses a **Router + Specialists** architecture:
+
+query → router → memory_load → specialist
+→ memory_update → output
+
+Specialists:
+
+* theory_agent
+* coding_agent
+* planner_agent
+* general_agent
+
+Each agent reads/writes a shared `AgentState`, calls Qwen through LangChain, and optionally uses tools.
+
+Memory is stored in `memory.json` and updated each run.
+
+
+2. AGENTS
+
+
+Router Agent
+
+* Classifies query into: theory / coding / planning / general.
+* Does not use session history (prevents misrouting).
+
+Memory Load Agent
+
+* Loads user profile, recent history, and notes from `memory.json`.
+
+Theory Agent
+
+* Answers MAS / ML / DL / RL conceptual questions.
+* Saves answers as `.md` notes.
+
+Coding Agent
+
+* Debugging, code explanations.
+* Runs Beacon code analysis.
+
+Planner Agent
+
+* Generates study/work plans based on profile + history.
+
+General Agent
+
+* Handles queries not matching other categories.
+
+Memory Update Agent
+
+* Writes new Q&A into `memory.json`.
+
+Output Node
+
+* Produces final answer.
+
+
+3. TOOLS
+
+
+save_markdown_note
+
+* Used by Theory Agent. Produces notes in `notes/`.
+
+beacon_analyze_code
+
+* Used by Coding Agent. Generates semantic code summary.
+
+
+4. HOW TO RUN
+
+
+1. Install dependencies:
+   pip install -r requirements.txt
+
+2. Set env variables (same as Lab 1):
+   LITELLM_BASE_URL
+   LITELLM_API_KEY
+   MODEL_NAME
+
+3. Start minimal CLI:
+   python src/run_cli.py
+
+4. Run experiments (Task 3):
+   python src/run_experiments.py
+   → produces experiment_results.json
+
+
+5. ARCHITECTURE SUMMARY
+
+
+User → Router
+Router → Memory Load
+Memory Load → Selected Specialist
+Specialist → Memory Update
+Memory Update → Output Node → User
+
+Tools are called **inside specialist agents**:
+
+* Theory → save_markdown_note
+* Coding → beacon_analyze_code
+
+Memory influences Planner Agent most (study plan compression).
+
+
+6. SHORT REFLECTION
+
+
+What worked well:
+
+* Routing was correct across all test queries.
+* Specialist agents produced useful answers (theory explanations, debugging steps, study plans).
+* Planner Agent successfully reused session context.
+* Execution trace (activated agents + tool calls) is clear.
+
+Limitations:
+
+* Notes are written but not retrieved in later queries.
+* Memory is not selective; irrelevant history is sometimes included.
+* Tool output (Beacon summary) can appear noisy.
+
+Future improvements:
+
+* Add selective RAG over notes and history.
+* Smarter tool invocation (only when helpful).
+* Optional supervisor agent to refine outputs.
+* Demonstrate planner–executor pattern in addition to router–specialists.
+

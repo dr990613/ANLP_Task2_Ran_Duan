@@ -1,0 +1,125 @@
+## Design Document: Multi-Agent Study & Productivity Assistant
+
+This document briefly describes the **agents**, **MAS patterns**, and **tool + memory design** of our system.
+
+---
+
+### 1. Agents and Their Responsibilities
+
+The system is implemented as a LangGraph workflow over a shared `AgentState` (a `TypedDict`), with the following agents / nodes:
+
+| Agent / Node         | Responsibility                                                                                       |
+|----------------------|------------------------------------------------------------------------------------------------------|
+| **Router Agent**     | Reads `state.query` and classifies the query into one of: `theory`, `coding`, `planning`, `general`. It ignores history to avoid bias from previous turns. Writes the result to `state.route` and appends `"router"` to `state.activated_agents`. |
+| **Memory Load Agent** (`memory_load_node`) | Loads persistent memory from `data/memory.json` into the shared state: `state.user_profile`, `state.session_history`, and `state.notes`. This prepares contextual information for downstream specialist agents. |
+| **Theory Agent**     | Handles conceptual/theoretical questions about MAS, LLM agents, ML/DL, and RL. Optionally retrieves relevant notes, generates an explanation using Qwen, and saves the explanation as a Markdown note. Writes the explanation to `state.partial_answer`. |
+| **Coding Agent**     | Handles implementation questions: Python code, ML/DL frameworks, LangChain/LangGraph issues, error messages, etc. Generates code-oriented answers and applies Beacon analysis to extracted code blocks. Writes the result to `state.partial_answer`. |
+| **Planner Agent**    | Handles planning / productivity queries (e.g., study plans, weekly schedules). Uses `state.user_profile` and `state.session_history` to produce realistic plans. Writes the plan to `state.plan` and `state.partial_answer`. |
+| **General Agent**    | Fallback agent for queries that are not clearly theory, coding, or planning, but still within study/productivity scope. Writes its response to `state.partial_answer`. |
+| **Memory Update Agent** (`memory_update_node`) | After a specialist responds, appends the current user query and answer to the long-term history `data/memory.json`. Also updates `state.session_history` to include this new Q&A. |
+| **Output Node**      | Consolidates the answer by copying `state.partial_answer` (or an existing `state.final_answer`) into `state.final_answer`. Appends `"output_node"` to `state.activated_agents`. |
+
+Each agent:
+- **Reads** only the relevant subset of `AgentState`,
+- **Calls** the Qwen LLM via LangChain (and optionally a tool),
+- **Updates** the shared state with its own results (route, partial answer, plan, memory fields, tracing fields).
+
+---
+
+### 2. MAS Patterns Implemented
+
+Our design intentionally implements several MAS patterns discussed in class.
+
+#### 2.1 Router + Specialists (Primary Pattern)
+
+- **Router Agent**:
+  - Input: `state.query`.
+  - Output: `state.route ∈ {theory, coding, planning, general}`.
+  - Behavior: pure classifier, does not depend on `session_history` to avoid “memory-driven misrouting”.
+
+- **Specialist Agents**:
+  - `theory_agent`, `coding_agent`, `planner_agent`, `general_agent`.
+  - Each has a narrow, domain-specific responsibility and its own system prompt.
+
+- **Graph Structure (handoff)**:
+  - `router → memory_load → (theory | coding | planning | general) → memory_update → output → END`.
+  - The actual path depends on `state.route` (= classification result), which is used by `route_selector` in a conditional edge.
+
+This directly matches the **Router + Specialists** pattern: a single routing agent decides which expert(s) to activate based on the query type.
+
+#### 2.2 Planner–Executor (Lightweight Variant)
+
+We implement a light version of the **Planner–Executor** pattern through the **Planner Agent** and the **global workflow**:
+
+- **Planner Agent**:
+  - Generates structured plans (study plans, weekly schedules) rather than executing them.
+  - Uses `user_profile` and `session_history` as context.
+
+- **“Executor” Side**:
+  - The graph (memory update + output) ensures the plan is recorded in memory and returned to the user.
+  - In a more advanced version, the plan could be used to drive further steps, but for this lab a single-step execution is sufficient.
+
+Thus, within the overall Router + Specialists architecture, there is a **planning specialist** that embodies the Planning part of the Planner–Executor pattern.
+
+#### 2.3 Lightweight Supervisor / Orchestrator
+
+Instead of a separate “supervisor LLM”, we use the **LangGraph topology** itself as a supervisor:
+
+- It enforces:
+  - Router is always the entry point,
+  - Memory is always loaded before specialists run,
+  - Memory is always updated after specialists run,
+  - Output node always consolidates the final answer.
+
+This graph-level orchestration realizes a **supervisor-like** role, without adding an extra supervising agent node.
+
+---
+
+### 3. Tools and Memory: Usage & Effects
+
+#### 3.1 Tools
+
+All tools are defined in `src/tools.py`. Each agent can optionally call one or more tools and then **update the state** by appending tool names to `state.tool_calls`.
+
+
+1.**`save_markdown_note(title, content)`**
+   - **Used by**: Theory Agent.
+   - **Purpose**:
+     - Saves the theory explanation as a Markdown file (`.md`) under a `/notes/` directory.
+     - Transforms one-shot LLM outputs into persistent study notes.
+   - **State impact**:
+     - Adds `"save_markdown_note"` to `state.tool_calls`.
+     - Writes the file path into `state["markdown_note_path"]` (for inspection).
+     - Slightly modifies `state.partial_answer` by appending a note like
+       `"(Saved as markdown note: <path>)"`.
+
+2.**`beacon_analyze_code(code: str)`**
+   - **Used by**: Coding Agent.
+   - **Purpose**:
+     - Runs **Beacon Logic** (implemented in `BeaconExtractor`) on the generated Python code block.
+     - Extracts **program-level semantic beacons** (key lines, calls, returns) and returns a human-readable summary.
+   - **State impact**:
+     - Coding agent:
+       - Extracts the first Python code block from the LLM’s answer.
+       - Calls `beacon_analyze_code` if a code block is found.
+       - Appends `"beacon_analyze_code"` to `state.tool_calls`.
+       - Extends `state.partial_answer` with a `"### Beacon summary"` section at the end, acting as an engineering-level reminder of the semantic core.
+
+
+#### 3.2 Memory Management
+
+Memory is handled by a combination of:
+
+- A **persistent JSON file**: `data/memory.json`.
+- Two dedicated memory nodes: `memory_load_node` and `memory_update_node`.
+- State fields within `AgentState`.
+
+##### 3.2.1 Storage Format (`data/memory.json`)
+
+The JSON file contains:
+
+- `"user_profile"`: long-term user information
+  (e.g., program, focus topic, current courses, goals).
+- `"history"`: a list of Q&A entries, each:
+  ```json
+  { "role": "user" | "assistant", "content": "..." }

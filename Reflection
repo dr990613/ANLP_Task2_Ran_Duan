@@ -1,0 +1,98 @@
+### 4. Reflection on the Multi-Agent System
+
+In this section, we reflect on how our multi-agent architecture behaved across five end-to-end runs, focusing on routing, collaboration between agents, tool usage, and memory.
+
+---
+
+#### 4.1 What Worked Well
+
+**(1) Multi-agent design and routing logic**
+
+* The router consistently dispatched queries to appropriate specialists:
+
+  * Conceptual/theoretical questions → `theory_agent`
+  * Debugging / error-fixing questions → `coding_agent`
+  * Study planning and time management → `planner_agent`
+* Across all five test runs, there were no obvious mis-routes. This suggests that the routing prompt and decision logic are aligned with the intended “router + specialists” pattern.
+
+**(2) Handover and state updates**
+
+* Each trajectory followed a clean and interpretable pattern:
+  `router → memory_load → specialist_agent → memory_update → output_node`
+* The explicit `activated_agents` and `tool_calls` traces make the system’s internal behaviour transparent and debuggable. This is useful both for development and for explaining the MAS structure.
+
+**(3) Basic tool usage**
+
+* For theory-oriented queries, the system called `save_markdown_note` to store the final answer as a markdown note. This effectively turns the system into a “learning assistant” that automatically creates study notes.
+* For the debugging query (KeyError in LangGraph), the system invoked `beacon_analyze_code` via the coding agent. Conceptually, this matches the idea of using a specialized analysis tool for code-related tasks.
+
+**(4) Practical usefulness of the answers**
+
+* The theoretical explanations (router–specialists vs planner–executor, vector-DB memory integration) were well-structured and immediately usable as written material for assignments.
+* The debugging answer for the LangGraph `KeyError('route')` provided multiple concrete strategies (state initialization, dedicated routing node, `.get()` fallback), which are directly applicable.
+* The 7-day CNN study plan and the compressed “2 hours per day” variant were coherent, realistic, and showed that the planner agent could adapt the previous plan to a new time constraint.
+
+---
+
+#### 4.2 Limitations Observed
+
+Although the system performed reasonably well in these runs, two key limitations emerged around memory usage:
+
+**(1) Notes are written, but rarely read**
+
+* For theoretical questions, the system reliably called `save_markdown_note` and produced markdown files (e.g., Q&A for MAS patterns and vector-DB architecture).
+* However, in subsequent queries, the system did **not** actually retrieve or reuse these notes (`notes_loaded` remained 0 in the logs).
+* As a result, the note-taking mechanism currently behaves more like a one-way logging system than a full read-write memory component.
+
+**(2) Memory is not used selectively**
+
+* The `memory_load` step passes recent `session_history` to the next agent, but without any filtering.
+* In the debugging example, the context included previous discussions about multi-agent architecture and CNN study plans, which were largely irrelevant to the KeyError.
+* This increases context size and cognitive load for the model without clear benefits. Ideally, memory retrieval should be selective (only loading information that is likely to be relevant to the current query).
+
+---
+
+#### 4.3 Future Extensions and Optimizations
+
+If more time were available, several directions could significantly improve the system’s robustness and realism.
+
+**(1) More refined memory and RAG behaviour**
+
+* Turn the current memory subsystem into a real retrieval-augmented layer:
+
+  * When `memory_load` is called, decide **whether** to retrieve notes at all based on the current `route` and query type.
+  * If retrieval is needed, select only a small set of relevant notes using simple similarity search (e.g., keyword matching or vector search) instead of loading everything.
+* For example, theory questions could retrieve previous theoretical notes; coding questions could retrieve earlier error analyses or code explanations, etc.
+
+**(2) Tool-calling strategy and result presentation**
+
+* Introduce a lightweight decision step before calling tools such as `save_markdown_note`:
+
+  * Only save answers that are conceptual, reusable, or explicitly requested by the user.
+* For analytical tools such as `beacon_analyze_code`:
+
+  * Integrate tool outputs by summarising them into 1–2 sentences inside the main answer.
+  * Provide the full tool output only when explicitly requested.
+    This keeps the final response clean while still demonstrating tool usage.
+
+**(3) Adding a supervisor / review agent**
+
+* Insert a `supervisor_agent` (or `review_agent`) just before `output_node`:
+
+  * Check for over-long or off-topic answers.
+  * Detect and trim low-value technical noise (e.g., file paths or internal summaries).
+  * Optionally verify simple consistency constraints (e.g., total time in a study plan does not exceed the user’s daily limit).
+* This would make the system more robust and closer to real-world multi-agent patterns where a “critic” or “editor” supervises other agents.
+
+**(4) Richer empirical evidence of MAS patterns**
+
+* At present, the system mainly demonstrates the router–specialists pattern.
+  A natural extension would be to also realise a small, explicit **planner–executor** pipeline:
+
+  * A planner agent generates a multi-step plan.
+  * One or more executor agents carry out individual steps, call tools, and update the state.
+* Comparing these two patterns on concrete tasks (e.g., study planning vs. multi-step code refactoring) would provide stronger empirical support for the theoretical discussion of MAS architectures.
+
+---
+
+Overall, the experiments show that the current multi-agent design already produces useful and reasonably well-routed answers, while also exposing clear avenues for improving memory usage, tool integration, and higher-level supervision.
